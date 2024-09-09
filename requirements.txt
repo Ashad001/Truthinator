@@ -1,0 +1,9 @@
+dspy-ai
+chromadb
+groq
+llama-index
+llama-index-embeddings-huggingface
+llama-index-embeddings-instructor
+llama-index-llms-groq
+llama-index-vector-stores-chroma
+huggingface-hub
