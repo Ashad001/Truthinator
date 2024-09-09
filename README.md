@@ -1,5 +1,5 @@
-# LLM Response Assessor & Generator
-
+# LLM Response Assessor & Generator (IN DEVELOPMENT)
+ 
 So you gave GPT your assignment PDF, and now you’re stuck wondering if its response is actually any good? Well, congrats! This project is here to do the dirty work: assess the AI’s half-baked response, tell you how wrong it is, then *try* to fix it for you. Because, clearly, you have better things to do.
 
 ## Features

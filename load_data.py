@@ -23,9 +23,6 @@ def create_index(directory: str, persist_dir: str = None) -> VectorStoreIndex:
         index.storage_context.persist(persist_dir=persist_dir)
     return index
 
-# def create_embeddings(model_name: str) -> HuggingFaceEmbedding:
-#     return HuggingFaceEmbedding(model_name=model_name)
-
 def load_data(directory: str) -> VectorStoreIndex:
     index = create_index(directory, persist_dir=f"chroma_{MODEL_NAME.split('/')[-1]}")    
     return index
