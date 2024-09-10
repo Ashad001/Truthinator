@@ -1,4 +1,5 @@
 import os
+import re
 import dspy
 from dspy import InputField, OutputField, ChainOfThought, Predict, Signature, Module
 from dotenv import load_dotenv
@@ -6,8 +7,8 @@ from load_data import get_query_engine, load_data
 
 load_dotenv()
 
-lm = dspy.GROQ(model='llama-3.1-8b-instant', api_key = os.getenv("GROQ_API_KEY") )
-
+# lm = dspy.GROQ(model='llama-3.1-8b-instant', api_key = os.getenv("GROQ_API_KEY") )
+lm = dspy.OpenAI(model='gpt-4o-mini', api_key = os.getenv("OPENAI_API_KEY"))
 
 dspy.settings.configure(lm=lm)
 
@@ -20,16 +21,17 @@ query_engine = get_query_engine(index)
 # So the data is loaded into a vector database. The user inputs a query (containing the response from LLM by his/her choice) and the Model will search the vector database for the relevant paragraphs. It will then tell if the response is accurate or not, if it is not accurate, it will give a detailed explanation as to why it is not accurate and then give a new response. This process will repeat until the response is accurate.
 
 class compare_response(Signature):
-    """Compare response accuracy to context. Answer accuracy score between (1-10) 10 being the highest accuracy"""
-    initial_response = InputField(desc="The response to be assessed")
-    context_response = InputField(desc="The response to be assessed")
-    accuracy = OutputField(desc="accuracy score between (1-10)")
-  
+    """Evaluate the generated response against the provided context, focusing on factual correctness and relevance."""
+    initial_response = InputField(desc="Generated response to evaluate")
+    context_response = InputField(desc="Relevant context from the document")
+    accuracy = OutputField(desc="Accuracy score between 0 and 10")
+    explanation = OutputField(desc="Concise explanation about why the score was given")
+
 class response_generator(Signature):
-    """ Generate a response to a given query given the context"""
-    query = InputField(desc="Unfactual response")
-    context = InputField(desc="May contain information about the response")
-    response = OutputField(desc="New response for the query based on the context")
+    """Generate a corrected response based on a query and provided context. Ensure the new response is factually accurate, aligned with the context, and well-structured."""
+    query = InputField(desc="Query that produced an incorrect response")
+    context = InputField(desc="Relevant context from the source document")
+    response = OutputField(desc="Corrected and more accurate response based on the context")
 
 class Assessor(Module):
     def __init__(self):
@@ -37,12 +39,24 @@ class Assessor(Module):
         self.query_engine = query_engine
         self.generate_response = ChainOfThought(compare_response)
         
-    def forward(self, initial_response: str) -> str:
+    def forward(self, initial_response: str) -> dict:
         context = self.query_engine.query(initial_response).response
-        return self.generate_response(
+        result = self.generate_response(
             initial_response=initial_response, 
             context_response=context
         )
+        print("-->", result.accuracy)
+        try:
+            accuracy = int(float(result.accuracy))
+        except (ValueError, TypeError):
+            if re.search(r'\d', result.accuracy):
+                accuracy = int(result.accuracy)
+            else:
+                accuracy = 0    
+        return {
+            "accuracy_score": accuracy,
+            "explanation": result.explanation
+        }
     
 class Generator(Module):
     def __init__(self):
@@ -51,19 +65,26 @@ class Generator(Module):
         
     def forward(self, query: str, context: str) -> str:
         return self.generate_response(query=query, context=context)
-    
+
 
 if __name__ == "__main__":
     query = "One of the key professional failings during the 1996 disaster was the inability of the teams to adapt to changing conditions. Mount Everest is an inherently unpredictable environment, and successful climbers must be able to adjust their plans based on the realities they face on the mountain. However, both the New Zealand and American teams failed to do so."
-    assessor  = Assessor()
+    
+    query_false = "The 1996 Mt Everest climbing disaster was the deadliest year in the 43-year history of climbing Mt Everest, with a total of 15 climber deaths and several other serious injuries. This disaster underscores the critical importance of adaptability in extreme environments. Successful climbers must be able to adjust their plans based on the realities they face on the mountain. However, during the 1996 disaster, both the New Zealand and American teams struggled to adapt to the rapidly changing"
+
+    assessor = Assessor()
     generator = Generator()
     
-    response = assessor(initial_response=query)
-    print(response)
-    print(response.accuracy)
+    assessment = assessor(initial_response=query_false)
     
+    print("Raw Model Output: ", assessment)
     
+    print("Accuracy: ", assessment['accuracy_score'])
+    print("-" * 20)
+    print(f"Explanation: {assessment['explanation']}")
+    print("-" * 20)
     
-    
-    
-    
+    if assessment['accuracy_score'] < 7:  
+        context = query_engine.query(query_false).response
+        new_response = generator(query=query_false, context=context)
+        print(f"New Response: {new_response['response']}")
