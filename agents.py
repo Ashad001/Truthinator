@@ -8,7 +8,7 @@ from load_data import get_query_engine, load_data
 load_dotenv()
 
 # lm = dspy.GROQ(model='llama-3.1-8b-instant', api_key = os.getenv("GROQ_API_KEY") )
-lm = dspy.OpenAI(model='gpt-4o-mini', api_key = os.getenv("OPENAI_API_KEY"))
+lm = dspy.OpenAI(model='gpt-4o-mini', api_key = os.getenv("OPENAI_API_KEY"), max_tokens=1024)
 
 dspy.settings.configure(lm=lm)
 
@@ -37,54 +37,37 @@ class Assessor(Module):
     def __init__(self):
         super().__init__()
         self.query_engine = query_engine
-        self.generate_response = ChainOfThought(compare_response)
-        
+        self.compare_response = ChainOfThought(compare_response)
+        self.generate_response = ChainOfThought(response_generator)
+
     def forward(self, initial_response: str) -> dict:
         context = self.query_engine.query(initial_response).response
-        result = self.generate_response(
+        response = self.compare_response(
             initial_response=initial_response, 
             context_response=context
         )
-        print("-->", result.accuracy)
+ 
+        result = {}
+        accuracy_score = int(float(response.accuracy))
         try:
-            accuracy = int(float(result.accuracy))
-        except (ValueError, TypeError):
-            if re.search(r'\d', result.accuracy):
-                accuracy = int(result.accuracy)
+            result['accuracy_score'] = accuracy_score
+            if accuracy_score < 7:
+                context = self.query_engine.query(initial_response).response
+                new_response = self.generate_response(query=initial_response, context=context)
+                result['response'] = new_response.response
             else:
-                accuracy = 0    
-        return {
-            "accuracy_score": accuracy,
-            "explanation": result.explanation
-        }
+                result['response'] = initial_response
+        except Exception as e:
+            result['response'] = initial_response
+            result['error'] = str(e)
+        return result
     
-class Generator(Module):
-    def __init__(self):
-        super().__init__()
-        self.generate_response = ChainOfThought(response_generator)
-        
-    def forward(self, query: str, context: str) -> str:
-        return self.generate_response(query=query, context=context)
-
 
 if __name__ == "__main__":
     query = "One of the key professional failings during the 1996 disaster was the inability of the teams to adapt to changing conditions. Mount Everest is an inherently unpredictable environment, and successful climbers must be able to adjust their plans based on the realities they face on the mountain. However, both the New Zealand and American teams failed to do so."
     
-    query_false = "The 1996 Mt Everest climbing disaster was the deadliest year in the 43-year history of climbing Mt Everest, with a total of 15 climber deaths and several other serious injuries. This disaster underscores the critical importance of adaptability in extreme environments. Successful climbers must be able to adjust their plans based on the realities they face on the mountain. However, during the 1996 disaster, both the New Zealand and American teams struggled to adapt to the rapidly changing"
+    query_false = "The 2000 Mt Everest climbing disaster was the deadliest year in the 43-year history of climbing Mt Everest, with a total of 10 climber deaths and several other serious injuries. This disaster underscores the critical importance of adaptability in extreme environments. Successful climbers must be able to adjust their plans based on the realities they face on the mountain. However, during the 1996 disaster, both the New Zealand and American teams struggled to adapt to the rapidly changing"
 
     assessor = Assessor()
-    generator = Generator()
-    
     assessment = assessor(initial_response=query_false)
-    
-    print("Raw Model Output: ", assessment)
-    
-    print("Accuracy: ", assessment['accuracy_score'])
-    print("-" * 20)
-    print(f"Explanation: {assessment['explanation']}")
-    print("-" * 20)
-    
-    if assessment['accuracy_score'] < 7:  
-        context = query_engine.query(query_false).response
-        new_response = generator(query=query_false, context=context)
-        print(f"New Response: {new_response['response']}")
+    print(assessment)
